@@ -469,7 +469,7 @@ def train_embedding(id_task, embedding_name, learn_rate, batch_size, gradient_st
                 break
             if shared.state.interrupted:
                 break
-            for j, batch in enumerate(dl):
+            for j, superbatch in enumerate(modules.textual_inversion.dataset.group_batches(dl, batch_size)):
                 # works as a drop_last=True for gradient accumulation
                 if j == max_steps_per_epoch:
                     break
@@ -481,29 +481,28 @@ def train_embedding(id_task, embedding_name, learn_rate, batch_size, gradient_st
 
                 if clip_grad:
                     clip_grad_sched.step(embedding.step)
-            
-                with devices.autocast():
-                    x = batch.latent_sample.to(devices.device, non_blocking=pin_memory)
-                    if use_weight:
-                        w = batch.weight.to(devices.device, non_blocking=pin_memory)
-                    c = shared.sd_model.cond_stage_model(batch.cond_text)
 
-                    if is_training_inpainting_model:
-                        if img_c is None:
-                            img_c = processing.txt2img_image_conditioning(shared.sd_model, c, training_width, training_height)
+                def get_loss(batch):
+                    with devices.autocast():
+                        x = batch.latent_sample.to(devices.device, non_blocking=pin_memory)
+                        if use_weight:
+                            w = batch.weight.to(devices.device, non_blocking=pin_memory)
+                        c = shared.sd_model.cond_stage_model(batch.cond_text)
 
-                        cond = {"c_concat": [img_c], "c_crossattn": [c]}
-                    else:
-                        cond = c
+                        if is_training_inpainting_model:
+                            if img_c is None:
+                                img_c = processing.txt2img_image_conditioning(shared.sd_model, c, training_width, training_height)
+                            cond = {"c_concat": [img_c], "c_crossattn": [c]}
+                        else:
+                            cond = c
 
-                    if use_weight:
-                        loss = shared.sd_model.weighted_forward(x, cond, w)[0] / gradient_step
-                        del w
-                    else:
-                        loss = shared.sd_model.forward(x, cond)[0] / gradient_step
-                    del x
+                        if use_weight:
+                            loss = shared.sd_model.weighted_forward(x, cond, w)[0] / gradient_step * len(batch) / batch_size
+                        else:
+                            loss = shared.sd_model.forward(x, cond)[0] / gradient_step * len(batch) / batch_size
 
-                    _loss_step += loss.item()
+                loss = sum(get_loss(batch) for batch in superbatch)
+                _loss_step += loss.item()
                 scaler.scale(loss).backward()
 
                 # go back until we reach gradient accumulation steps
@@ -563,7 +562,7 @@ def train_embedding(id_task, embedding_name, learn_rate, batch_size, gradient_st
                         p.width = preview_width
                         p.height = preview_height
                     else:
-                        p.prompt = batch.cond_text[0]
+                        p.prompt = superbatch[0].cond_text[0]
                         p.steps = 20
                         p.width = training_width
                         p.height = training_height
@@ -620,7 +619,7 @@ def train_embedding(id_task, embedding_name, learn_rate, batch_size, gradient_st
 <p>
 Loss: {loss_step:.7f}<br/>
 Step: {steps_done}<br/>
-Last prompt: {html.escape(batch.cond_text[0])}<br/>
+Last prompt: {html.escape(superbatch[0].cond_text[0])}<br/>
 Last saved embedding: {html.escape(last_saved_file)}<br/>
 Last saved image: {html.escape(last_saved_image)}<br/>
 </p>

@@ -6,7 +6,6 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader, Sampler
 from torchvision import transforms
 from collections import defaultdict
-from random import shuffle, choices
 
 import random
 import tqdm
@@ -173,43 +172,72 @@ class PersonalizedBase(Dataset):
         return entry
 
 
-class GroupedBatchSampler(Sampler):
+def greedy_pack(tails, b):
+    '''inefficient suboptimal packing of remainders from each bucket'''
+    by_len = defaultdict(list)
+    for t in tails:
+        by_len[len(t)].append(t)
+    n = sum(len(t) for t in tails) // b
+    superbatches = []
+    for _ in range(n):
+        to_pick = b
+        superbatch = []
+        while to_pick:
+            for k, v in sorted(by_len.items(), reverse=True):
+                # try pick longest
+                if k <= to_pick:
+                    to_pick -= k
+                    superbatch.append(v.pop())
+                    if not v:
+                        del(by_len[k])
+                    break
+            else:
+                # can't find any so split a group
+                maxlen = max(by_len)
+                tail = by_len[maxlen].pop()
+                if not by_len[maxlen]:
+                    del by_len[maxlen]
+                superbatch.append(tail[:to_pick])
+                by_len[len(tail[to_pick:])].append(tail[to_pick:])
+                to_pick = 0
+        superbatches.append(superbatch)
+    return superbatches
+
+class VariableBatchSampler(Sampler):
     def __init__(self, data_source: PersonalizedBase, batch_size: int):
-        super().__init__(data_source)
-
-        n = len(data_source)
+        self.n = len(data_source)
         self.groups = data_source.groups
-        self.len = n_batch = n // batch_size
-        expected = [len(g) / n * n_batch * batch_size for g in data_source.groups]
-        self.base = [int(e) // batch_size for e in expected]
-        self.n_rand_batches = nrb = n_batch - sum(self.base)
-        self.probs = [e%batch_size/nrb/batch_size if nrb>0 else 0 for e in expected]
         self.batch_size = batch_size
-
-    def __len__(self):
-        return self.len
-
+    
     def __iter__(self):
         b = self.batch_size
+        dropped = set(random.sample(range(self.n), self.n % b))
+        groups = [[x for x in g if x not in dropped] for g in self.groups]
+        for g in groups:
+            random.shuffle(g)
+        superbatches = []
+        for g in groups:
+            superbatches.extend([g[i*b:(i+1)*b]] for i in range(len(g) // b))
+        tails = [g[-(len(g) % b):] for g in groups if len(g) % b != 0]
+        random.shuffle(tails)
+        superbatches.extend(greedy_pack(tails, b))
+        random.shuffle(superbatches)
+        yield from [batch for superbatch in superbatches for batch in superbatch]
 
-        for g in self.groups:
-            shuffle(g)
-
-        batches = []
-        for g in self.groups:
-            batches.extend(g[i*b:(i+1)*b] for i in range(len(g) // b))
-        for _ in range(self.n_rand_batches):
-            rand_group = choices(self.groups, self.probs)[0]
-            batches.append(choices(rand_group, k=b))
-
-        shuffle(batches)
-
-        yield from batches
+def group_batches(batches, batch_size):
+    m, superbatch = 0, []
+    for batch in batches:
+        superbatch.append(batch)
+        m += len(batch)
+        assert m <= batch_size
+        if m == batch_size:
+            yield superbatch
+            m, superbatch = 0, []
 
 
 class PersonalizedDataLoader(DataLoader):
     def __init__(self, dataset, latent_sampling_method="once", batch_size=1, pin_memory=False):
-        super(PersonalizedDataLoader, self).__init__(dataset, batch_sampler=GroupedBatchSampler(dataset, batch_size), pin_memory=pin_memory)
+        super(PersonalizedDataLoader, self).__init__(dataset, batch_sampler=VariableBatchSampler(dataset, batch_size), pin_memory=pin_memory)
         if latent_sampling_method == "random":
             self.collate_fn = collate_wrapper_random
         else:
@@ -227,6 +255,9 @@ class BatchLoader:
             self.weight = None
         #self.emb_index = [entry.emb_index for entry in data]
         #print(self.latent_sample.device)
+    
+    def __len__(self):
+        return len(self.cond)
 
     def pin_memory(self):
         self.latent_sample = self.latent_sample.pin_memory()
