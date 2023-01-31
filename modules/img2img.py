@@ -60,6 +60,22 @@ def process_batch(p, input_dir, output_dir, inpaint_mask_dir, args):
             mask_image = Image.open(mask_image_path)
             p.image_mask = mask_image
 
+        # If thre's a paired text, get a prompt from it
+        # (and use [filewords] substitutionslike dream booth)
+        try:
+            with open(re.sub('[.]([^.]+)','.txt', image)) as f:
+                new_prompt = f.read()
+                if p.prompt=='':
+                    p.prompt = new_prompt
+                else:
+                    p.prompt = p.prompt.replace('[filewords]', new_prompt)
+        except:
+            pass
+        print(f"Generating for {image}")
+        prompt = re.sub(r'\s+', r' ',p.prompt)
+        print(f"  using prompt {prompt}")
+        negative_prompt = re.sub(r'\s+', r' ',p.negative_prompt)
+        print(f"  and negative prompt {negative_prompt}")
         proc = modules.scripts.scripts_img2img.run(p, *args)
         if proc is None:
             proc = process_images(p)
