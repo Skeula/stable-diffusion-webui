@@ -2,6 +2,7 @@ import math
 import os
 import sys
 import traceback
+import re
 
 import numpy as np
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageChops
@@ -20,7 +21,9 @@ import modules.scripts
 def process_batch(p, input_dir, output_dir, inpaint_mask_dir, args):
     processing.fix_seed(p)
 
-    images = shared.listfiles(input_dir)
+    def images_only (img):
+      ext = re.sub(r'.*([.][^.]+)$', r'\1', img)
+      return ext.lower() in ('.jpg', '.jpeg', 'webp', '.png')
 
     is_inpaint_batch = False
     if inpaint_mask_dir:
@@ -29,17 +32,20 @@ def process_batch(p, input_dir, output_dir, inpaint_mask_dir, args):
     if is_inpaint_batch:
         print(f"\nInpaint batch is enabled. {len(inpaint_masks)} masks found.")
 
-    print(f"Will process {len(images)} images, creating {p.n_iter * p.batch_size} new images for each.")
+    src_images = list(filter(images_only, shared.listfiles(input_dir)))
+
+    print(f"Will process {len(src_images)} images, creating {p.n_iter * p.batch_size} new images for each.")
 
     save_normally = output_dir == ''
 
     p.do_not_save_grid = True
     p.do_not_save_samples = not save_normally
 
-    state.job_count = len(images) * p.n_iter
 
-    for i, image in enumerate(images):
-        state.job = f"{i+1} out of {len(images)}"
+    state.job_count = len(src_images) * p.n_iter
+
+    for i, image in enumerate(src_images):
+        state.job = f"{i+1} out of {len(src_images)}"
         if state.skipped:
             state.skipped = False
 
