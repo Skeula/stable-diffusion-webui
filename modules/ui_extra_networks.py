@@ -1,3 +1,4 @@
+import platform
 import glob
 import os.path
 import urllib.parse
@@ -75,8 +76,7 @@ class ExtraNetworksPage:
         abspath = os.path.abspath(filename)
 
         for parentdir in (possible_directories if possible_directories is not None else self.allowed_directories_for_previews()):
-            parentdir = os.path.abspath(parentdir)
-            if abspath.startswith(parentdir):
+            if self.canonical_directory_name(abspath).startswith(self.canonical_directory_name(parentdir)):
                 return abspath[len(parentdir):].replace('\\', '/')
 
         return ""
@@ -138,6 +138,16 @@ class ExtraNetworksPage:
 
     def list_items(self):
         raise NotImplementedError()
+
+    def canonical_directory_name(self, dir):
+        if platform.system() == "Windows" or platform.system() == "Darwin":
+            dir = dir.lower()
+        return dir
+
+    def directory_allowed_for_previews(self, filename):
+        filename = self.canonical_directory_name(filename)
+        allowed_dirs = [self.canonical_directory_name(v) for v in self.allowed_directories_for_previews()]
+        return any([path_is_parent(x, filename) for x in allowed_dirs])
 
     def allowed_directories_for_previews(self):
         return []
@@ -296,7 +306,7 @@ def setup_ui(ui, gallery):
 
         is_allowed = False
         for extra_page in ui.stored_extra_pages:
-            if any([path_is_parent(x, filename) for x in extra_page.allowed_directories_for_previews()]):
+            if extra_page.directory_allowed_for_previews(filename):
                 is_allowed = True
                 break
 
