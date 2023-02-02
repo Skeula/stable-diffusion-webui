@@ -4,7 +4,9 @@ import time
 
 import gradio as gr
 from pydantic import BaseModel, Field
+from typing import List
 
+from modules import call_queue
 from modules.shared import opts
 
 import modules.shared as shared
@@ -36,6 +38,34 @@ def finish_task(id_task):
 def add_task_to_queue(id_job):
     pending_tasks[id_job] = time.time()
 
+last_task_id = None
+last_task_result = None
+
+def set_last_task_result(id_job, result):
+  global last_task_id
+  global last_task_result
+
+  last_task_id = id_job
+  last_task_result = result
+
+
+def restore_progress_call(task_tag):
+    if current_task is None or not current_task[5:-1].startswith(task_tag):
+
+      # image, generation_info, html_info, html_log
+      return tuple(list([None, None, None, None]))
+
+    else:
+
+      t_task = current_task
+      with call_queue.queue_lock_condition:
+        call_queue.queue_lock_condition.wait_for(lambda: t_task == last_task_id)
+
+      return last_task_result
+
+
+class CurrentTaskResponse(BaseModel):
+  current_task: str = Field(default=None, title="Task ID", description="id of the current progress task")
 
 class ProgressRequest(BaseModel):
     id_task: str = Field(default=None, title="Task ID", description="id of the task to get progress for")
@@ -56,6 +86,8 @@ class ProgressResponse(BaseModel):
 def setup_progress_api(app):
     return app.add_api_route("/internal/progress", progressapi, methods=["POST"], response_model=ProgressResponse)
 
+def setup_current_task_api(app):
+    return app.add_api_route("/internal/current_task", current_task_api, methods=["GET"], response_model=CurrentTaskResponse)
 
 def progressapi(req: ProgressRequest):
     active = req.id_task == current_task
@@ -97,3 +129,5 @@ def progressapi(req: ProgressRequest):
 
     return ProgressResponse(active=active, queued=queued, completed=completed, progress=progress, eta=eta, live_preview=live_preview, id_live_preview=id_live_preview, textinfo=shared.state.textinfo)
 
+def current_task_api():
+  return CurrentTaskResponse(current_task=current_task)

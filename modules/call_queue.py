@@ -7,7 +7,7 @@ import time
 from modules import shared, progress
 
 queue_lock = threading.Lock()
-
+queue_lock_condition = threading.Condition(lock=queue_lock)
 
 def wrap_queued_call(func):
     def f(*args, **kwargs):
@@ -37,6 +37,7 @@ def wrap_gradio_gpu_call(func, extra_outputs=None):
                 res = func(*args, **kwargs)
             finally:
                 progress.finish_task(id_task)
+                progress.set_last_task_result(id_task, res)
 
             shared.state.end()
 
