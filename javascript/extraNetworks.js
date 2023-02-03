@@ -1,33 +1,63 @@
+function refilter (tabname, searchTerms) {
+    searchTerms = searchTerms.toLowerCase()
+    for (const extraType of gradioApp().querySelectorAll('#'+tabname+'_extra_tabs div.extra-network-cards')) {
+        const cards = []
+        for (const elem of extraType.children) {
+            const nameElem = elem.querySelector('.name')
+            const searchElem = elem.querySelector('.search_term')
+            if (!nameElem || !searchElem) continue
+            const text = nameElem.textContent.toLowerCase() + " " + searchElem.textContent.toLowerCase()
+            cards.push({elem,text})
+        }
+        for (const {elem,text} of cards) {
+            let matched = true
+            // in our world, search terms are a / separated list of search terms
+            // if a term does not exist at all in the origin then we ignore
+            // it, which does mean that if you start typing the results will get shorter and
+            // shorter and reset to everything which ok, weird, but acceptable
+            for (let term of searchTerms.split('/')) {
+                term = term.trim()
+                // a term is special if it starts with $ or that are exclusively non-ascii-letter-chars
+                // "non-ascii" is detected by looking for any \w class char that's not immediately followed
+                // by a zero-width-joiner
+                const termIsSpecial = term[0]==='$' || !(/\w(?!️)/.test(term))
+                const termInAnyCard = cards.some(_ => _.text.includes(term))
+                termInThisCard = text.includes(term)
+                if (termInThisCard) continue
+                if (termIsSpecial && !termInAnyCard) continue
+                matched = false
+                break
+            }
+            elem.style.display = matched ? '' : 'none'
+        }
+    }
+}
 
 function setupExtraNetworksForTab(tabname){
     gradioApp().querySelector('#'+tabname+'_extra_tabs').classList.add('extra-networks')
 
-    var tabs = gradioApp().querySelector('#'+tabname+'_extra_tabs > div')
-    var search = gradioApp().querySelector('#'+tabname+'_extra_search textarea')
-    var refresh = gradioApp().getElementById(tabname+'_extra_refresh')
+    const tabs = gradioApp().querySelector('#'+tabname+'_extra_tabs > div')
+    const search = gradioApp().querySelector('#'+tabname+'_extra_search textarea')
+    const refresh = gradioApp().getElementById(tabname+'_extra_refresh')
 
+    search.value = '1️⃣/🎏'
     search.classList.add('search')
     tabs.appendChild(search)
     tabs.appendChild(refresh)
 
-    search.addEventListener("input", function(evt){
-        searchTerm = search.value.toLowerCase()
-
-        gradioApp().querySelectorAll('#'+tabname+'_extra_tabs div.card').forEach(function(elem){
-            text = elem.querySelector('.name').textContent.toLowerCase() + " " + elem.querySelector('.search_term').textContent.toLowerCase()
-            elem.style.display = text.indexOf(searchTerm) == -1 ? "none" : ""
-        })
-    });
+    search.addEventListener("input", () => refilter(tabname, search.value))
+    
+    refilter(tabname, search.value)
 }
 
-var activePromptTextarea = {};
+const activePromptTextarea = {};
 
 function setupExtraNetworks(){
     setupExtraNetworksForTab('txt2img')
     setupExtraNetworksForTab('img2img')
 
     function registerPrompt(tabname, id){
-        var textarea = gradioApp().querySelector("#" + id + " > label > textarea");
+        const textarea = gradioApp().querySelector("#" + id + " > label > textarea");
 
         if (! activePromptTextarea[tabname]){
             activePromptTextarea[tabname] = textarea
@@ -46,35 +76,56 @@ function setupExtraNetworks(){
 
 onUiLoaded(setupExtraNetworks)
 
-var re_extranet   =    /<([^:]+:[^:]+):[\d\.]+>/;
-var re_extranet_g = /\s+<([^:]+:[^:]+):[\d\.]+>/g;
+const re_extranet   = /<([^:]+:[^:]+):[\d\.]+>/;
+const re_extranet_g = /\s+<([^:]+:[^:]+):[\d\.]+>/g;
 
-function tryToRemoveExtraNetworkFromPrompt(textarea, text){
-    var m = text.match(re_extranet)
-    if(! m) return false
+function quotemeta (txt) {
+  if (!txt) return txt
+  return txt.replace(/([$^\[.?{(])/g,'\\$1')
+}
+function tryRemoveDuplicate(textarea, text) {
+    const match_text = new RegExp('(^|, +)' + quotemeta(text) + '((?=, )|$)')
+    if (!match_text.test(textarea.value)) return false
+    textarea.value = textarea.value.replace(match_text, '')
+    return true
+}
 
-    var partToSearch = m[1]
-    var replaced = false
-    var newTextareaText = textarea.value.replaceAll(re_extranet_g, function(found, index){
-        m = found.match(re_extranet);
-        if(m[1] == partToSearch){
-            replaced = true;
-            return ""
-        }
-        return found;
-    })
+const re_extra_type = '[^:>]+'
+const re_extra_name = '[^:>]+'
+const re_extra_weight = '[-+]?(?:\\d*[.]\\d+|\\d+[.]\\d*|\\d+)'
+const has_extranet = new RegExp(`<(${re_extra_type}):(${re_extra_name})(?::(${re_extra_weight}))?>`)
+function tryRemoveExtraNet(textarea, text){
+    // if it's not an extranet click, eg <type:name:weight> or <type:name>, then its a TI
+    // TIs are not removed by default
+    const extra = text.match(has_extranet)
+    if (!extra) return false
 
-    if(replaced){
-        textarea.value = newTextareaText
-        return true;
+    let [, type, name] = extra
+    const re_this_type = quotemeta(type)
+    let re_this_name
+    if (type == 'checkpoint') {
+        // checkpoint entries have hashes, but that shouldn't stop us from matching
+        name = name.replace(/ \[[^\]]+\]$/, '')
+        re_this_name = quotemeta(name) + '[^:>]*'
+    } else {
+        re_this_name = quotemeta(name)
     }
-
-    return false
+   
+    const is_this = new RegExp(` ?<${re_this_type}:${re_this_name}(?::${re_extra_weight})?>`)
+    if (is_this.test(textarea.value)) {
+        textarea.value = textarea.value.replace(is_this, '')
+        return true
+    } else if (type == 'checkpoint') {
+        // if it was a checkpoint AND it wasn't toggling an existing entry then
+        // let's remove any other checkpoints, since more than one makes no sense
+        const is_this_type = new RegExp(` ?<${re_this_type}:${re_extra_name}(?::${re_extra_weight})?>`, 'g')
+        textarea.value = textarea.value.replace(is_this_type, '')
+        // we don't return true, 'cause we still want to add the checkpoint the user selected
+    }
 }
 
 function cardClicked(tabname, textToAdd, allowNegativePrompt){
-    var textarea = allowNegativePrompt ? activePromptTextarea[tabname] : gradioApp().querySelector("#" + tabname + "_prompt > label > textarea")
-    const updates = []
+    let updates = []
     if (Array.isArray(textToAdd)) {
         const [addPrompt,addNegativePrompt] = textToAdd
         if (addPrompt) {
@@ -98,8 +149,11 @@ function cardClicked(tabname, textToAdd, allowNegativePrompt){
     for (const update of updates) {
         if (!update.add) continue
 
-        if(! tryToRemoveExtraNetworkFromPrompt(textarea, textToAdd)){
-            textarea.value = textarea.value + opts.extra_networks_add_text_separator + textToAdd
+        if (!(tryRemoveDuplicate(update.textarea, update.add) || tryRemoveExtraNet(update.textarea, update.add))) {
+            spacer = opts.extra_networks_add_text_separator
+            update.textarea.value = update.textarea.value == ''
+                                  ? update.add
+                                  : update.textarea.value + spacer + update.add
         }
         updateInput(update.textarea)
     }
@@ -107,8 +161,8 @@ function cardClicked(tabname, textToAdd, allowNegativePrompt){
 }
 
 function saveCardPreview(event, tabname, filename){
-    var textarea = gradioApp().querySelector("#" + tabname + '_preview_filename  > label > textarea')
-    var button = gradioApp().getElementById(tabname + '_save_preview')
+    const textarea = gradioApp().querySelector("#" + tabname + '_preview_filename  > label > textarea')
+    const button = gradioApp().getElementById(tabname + '_save_preview')
 
     textarea.value = filename
     updateInput(textarea)
@@ -119,12 +173,50 @@ function saveCardPreview(event, tabname, filename){
     event.preventDefault()
 }
 
-function extraNetworksSearchButton(tabs_id, event){
-    searchTextarea = gradioApp().querySelector("#" + tabs_id + ' > div > textarea')
-    button = event.target
-    text = button.classList.contains("search-all") ? "" : button.textContent.trim()
+const emoji_one = '1️⃣'
+const emoji_two = '2️⃣'
+const emoji_sfw = '🎏'
+const emoji_nsfw = '🎭'
+const is_sdver = new RegExp('^(' + [emoji_one,emoji_two].join('|') + ')$')
+const is_safety = new RegExp('^(' + [emoji_sfw,emoji_nsfw].join('|') + ')$')
 
-    searchTextarea.value = text
+function extraNetworksSearchButton(tabs_id, event){
+    const searchTextarea = gradioApp().querySelector("#" + tabs_id + ' > div > textarea')
+    let search = searchTextarea.value.trim().split('/')
+    const button = event.target
+    const new_term = button.textContent.trim()
+
+    // Clicking all clears the search
+    if (button.classList.contains("search-all")) {
+      search = []
+    // Clicking a term that's already in our search
+    } else if (search.some(_ => _ === new_term)) {
+      search = search.filter(_ => _ !== new_term)
+    } else {
+      // Clicking on a filter card updates the search based on the single token being clicked on
+      // safety and version clicks replace existing elements of their type and failing that, are
+      // prepended
+      for (const is_prefix of [is_sdver, is_safety]) {
+        if (is_prefix.test(new_term)) {
+            const match_loc = search.map((_,ii) => is_prefix.test(_) ? ii : -1).filter(_ => _ != -1)
+            if (match_loc.length) {
+                search[match_loc[0]] = new_term
+            } else {
+                // if the first elem is a version (which means we are not) and
+                // our term doesn't exist yet, inject said term after it
+                if (is_sdver.test(search[0])) {
+                   search.splice(1,0,new_term)
+                } else {
+                   search.unshift(new_term)
+                }
+            }
+            break
+        }
+        search = search.filter(_ => is_prefix.test(_))
+        search.push(new_term)
+      }
+    }
+    searchTextarea.value = search.join('/')
     updateInput(searchTextarea)
 }
 

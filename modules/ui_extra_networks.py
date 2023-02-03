@@ -4,6 +4,7 @@ import os.path
 import urllib.parse
 from pathlib import Path
 from PIL import PngImagePlugin
+import re
 
 from modules import shared
 from modules.images import read_info_from_image
@@ -87,7 +88,7 @@ class ExtraNetworksPage:
 
         self.metadata = {}
 
-        subdirs = {}
+        subdirs = []
         for parentdir in [os.path.abspath(x) for x in self.allowed_directories_for_previews()]:
             for x in glob.glob(os.path.join(parentdir, '**/*'), recursive=True):
                 if not os.path.isdir(x):
@@ -96,21 +97,34 @@ class ExtraNetworksPage:
                 subdir = os.path.abspath(x)[len(parentdir):].replace("\\", "/")
                 while subdir.startswith("/"):
                     subdir = subdir[1:]
-
-                is_empty = len(os.listdir(x)) == 0
-                if not is_empty and not subdir.endswith("/"):
-                    subdir = subdir + "/"
-
-                subdirs[subdir] = 1
+                for chunk in subdir.split('/'):
+                  if not chunk in subdirs:
+                    subdirs.append(chunk)
 
         if subdirs:
-            subdirs = {"": 1, **subdirs}
+            def sortable_dir (dir):
+              return '/'.join([
+                # SD version clicks (1-9 emoji)
+                f'00 {part}' if re.search(r'^[1-9]️⃣$', part) else
+                # safety click (childrens day/drama mask emoji)
+                f'01 {part}' if re.search(r'^(🎏|🎭)', part) else
+                # contains a character outside the ascii range
+                # intended to catch all other emoji
+                f'02 {part}' if re.search(r'[^ -~]', part) else
+                # terms starting with a $
+                f'03 {part}' if part.startswith('$') else
+                # finally everything else
+                f'99 {part}'
+                for part in dir.split('/')
+              ])
+            subdirs.sort(key=sortable_dir)
+            subdirs.insert(0, "")
 
-        subdirs_html = "".join([f"""
+        subdirs_html = "".join(map(lambda subdir: f"""
 <button class='lg secondary gradio-button custom-button{" search-all" if subdir=="" else ""}' onclick='extraNetworksSearchButton("{tabname}_extra_tabs", event)'>
 {html.escape(subdir if subdir!="" else "all")}
 </button>
-""" for subdir in subdirs])
+""", subdirs))
 
         for item in self.list_items():
             metadata = item.get("metadata")
