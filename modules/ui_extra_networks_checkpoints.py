@@ -22,7 +22,7 @@ class ExtraNetworksPageCheckpoints(ui_extra_networks.ExtraNetworksPage):
                 "preview": self.find_preview(path),
                 "description": self.find_description(path),
                 "search_term": self.search_terms_from_path(checkpoint.filename) + " " + (checkpoint.sha256 or ""),
-                "onclick": '"' + html.escape(f"""return selectCheckpoint({json.dumps(name)})""") + '"',
+                "prompt": json.dumps(f"<checkpoint:{checkpoint.name_for_extra}"+(f" [{checkpoint.sha256[:10]}]" if checkpoint.sha256 else "")+">"),
                 "local_preview": f"{path}.{shared.opts.samples_format}",
             }
 

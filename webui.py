@@ -13,7 +13,7 @@ from packaging import version
 import logging
 logging.getLogger("xformers").addFilter(lambda record: 'A matching Triton is not available' not in record.getMessage())
 
-from modules import paths, timer, import_hook, errors
+from modules import paths, timer, import_hook, errors, extra_networks_checkpoint
 
 startup_timer = timer.Timer()
 
@@ -163,6 +163,7 @@ def initialize():
     extra_networks.initialize()
     extra_networks.register_extra_network(extra_networks_hypernet.ExtraNetworkHypernet())
     startup_timer.record("extra networks")
+    extra_networks.register_extra_network(extra_networks_checkpoint.ExtraNetworkCheckpoint())
 
     if cmd_opts.tls_keyfile is not None and cmd_opts.tls_keyfile is not None:
 
@@ -331,6 +332,7 @@ def webui():
 
         extra_networks.initialize()
         extra_networks.register_extra_network(extra_networks_hypernet.ExtraNetworkHypernet())
+        extra_networks.register_extra_network(extra_networks_checkpoint.ExtraNetworkCheckpoint())
         startup_timer.record("initialize extra networks")
 
 
