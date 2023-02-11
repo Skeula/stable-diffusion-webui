@@ -25,10 +25,9 @@ set CHANNELS_LAST=1
 rem the API is used by a number of extensions and the like
 set API=1
 
-
 rem This allows the regular webui to talk to its own apis
 rem Comma seperated, add further origins for extensions that request them
-set CORS_ALLOW_ORIGINS=http://localhost:7860
+set CORS_ALLOW_ORIGINS=http://localhost:7860,https://www.painthua.com
 
 rem Reduce vram consumption, hopefully
 set PYTORCH_CUDA_ALLOC_CONF=garbage_collection_threshold:0.6,max_split_size_mb:128

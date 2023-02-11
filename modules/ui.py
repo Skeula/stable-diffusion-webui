@@ -712,6 +712,8 @@ def create_ui():
                             copy_image_buttons.append((button, name, elem))
 
                 with gr.Tabs(elem_id="mode_img2img"):
+                    # Handy shortcut to painthua, this should really be an extension with a tab
+                    gr.HTML(f"<p style='padding-bottom: 1em;'><a href='https://painthua.com/'>Use Painthua</a></p>")
                     with gr.TabItem('img2img', id='img2img', elem_id="img2img_img2img_tab") as tab_img2img:
                         init_img = gr.Image(label="Image for img2img", elem_id="img2img_image", show_label=False, source="upload", interactive=True, type="pil", tool="editor", image_mode="RGBA").style(height=480)
                         add_copy_image_controls('img2img', init_img)
