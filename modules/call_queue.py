@@ -33,6 +33,7 @@ def wrap_gradio_gpu_call(func, extra_outputs=None):
             shared.state.begin()
             progress.start_task(id_task)
 
+            res = None
             try:
                 res = func(*args, **kwargs)
             finally:
