@@ -23,9 +23,10 @@ registered_param_bindings = []
 
 
 class ParamBinding:
-    def __init__(self, paste_button, tabname, source_text_component=None, source_image_component=None, source_tabname=None, override_settings_component=None, paste_field_names=[]):
+    def __init__(self, paste_button, tabname, tab_subname=None, source_text_component=None, source_image_component=None, source_tabname=None, override_settings_component=None, paste_field_names=[]):
         self.paste_button = paste_button
         self.tabname = tabname
+        self.tab_subname = tab_subname
         self.source_text_component = source_text_component
         self.source_image_component = source_image_component
         self.source_tabname = source_tabname
@@ -109,9 +110,13 @@ def register_paste_params_button(binding: ParamBinding):
 def connect_paste_params_buttons():
     binding: ParamBinding
     for binding in registered_param_bindings:
-        destination_image_component = paste_fields[binding.tabname]["init_img"]
-        fields = paste_fields[binding.tabname]["fields"]
-        override_settings_component = binding.override_settings_component or paste_fields[binding.tabname]["override_settings_component"]
+        if binding.tab_subname is None:
+            destination_tab = binding.tabname
+        else:
+            destination_tab = binding.tab_subname
+        destination_image_component = paste_fields[destination_tab]["init_img"]
+        fields = paste_fields[destination_tab]["fields"]
+        override_settings_component = binding.override_settings_component or paste_fields[destination_tab]["override_settings_component"]
 
         destination_width_component = next(iter([field for field, name in fields if name == "Size-1"] if fields else []), None)
         destination_height_component = next(iter([field for field, name in fields if name == "Size-2"] if fields else []), None)
@@ -132,7 +137,7 @@ def connect_paste_params_buttons():
             )
 
         if binding.source_text_component is not None and fields is not None:
-            connect_paste(binding.paste_button, fields, binding.source_text_component, override_settings_component, binding.tabname)
+            connect_paste(binding.paste_button, fields, binding.source_text_component, override_settings_component, destination_tab)
 
         if binding.source_tabname is not None and fields is not None:
             paste_field_names = ['Prompt', 'Negative prompt', 'Steps', 'Face restoration'] + (["Seed"] if shared.opts.send_seed else []) + binding.paste_field_names
@@ -144,7 +149,7 @@ def connect_paste_params_buttons():
 
         binding.paste_button.click(
             fn=None,
-            _js=f"switch_to_{binding.tabname}",
+            _js=f"switch_to_{destination_tab}",
             inputs=None,
             outputs=None,
         )
