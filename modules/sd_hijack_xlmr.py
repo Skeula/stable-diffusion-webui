@@ -15,6 +15,8 @@ class FrozenXLMREmbedderWithCustomWords(sd_hijack_clip.FrozenCLIPEmbedderWithCus
 
         self.comma_token = self.tokenizer.get_vocab().get(',', None)  # alt diffusion doesn't have </w> bits for comma
 
+        print(f"sd_hijack_xlmr.__init__")
+
     def encode_with_transformers(self, tokens):
         # there's no CLIP Skip here because all hidden layers have size of 1024 and the last one uses a
         # trained layer to transform those 1024 into 768 for unet; so you can't choose which transformer

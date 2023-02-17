@@ -1,11 +1,51 @@
 import math
-from collections import namedtuple
-
+from collections import namedtuple, UserList
 import torch
+import re
 
 from modules import prompt_parser, devices, sd_hijack
 from modules.shared import opts
 
+
+class PromptTokenList(UserList):
+    """
+    This exists to allow us to get representational results for
+    """
+    def __init__(self, data=[]):
+      self.data = data
+      self.idmap = {}
+
+    #def set_idmap (self,idmap):
+    #  self.idmap = idmap
+    #def __getslice__(self,i,j):
+    #    sliced = PromptTokenList(list.__getslice__(self, i, j))
+    #    sliced.set_idmap(self.idmap)
+    #def __getitem__(self, item):
+    #    result = list.__getitem__(self, item)
+    #    try:
+    #        sublist = PromptTokenList(result)
+    #        sublist.set_idmap(self.idmap)
+    #        return sublist
+    #    except TypeError:
+    #        return result
+    #def __add__(self,other):
+    #    newval = PromptTokenList(list.__add__(self,other))
+    #    newval.set_idmap(self.idmap)
+    #    return newval
+    #def __mul__(self,other):
+    #    newval = PromptTokenList(list.__mul__(self,other))
+    #    newval.set_idmap(self.idmap)
+    #    return newval
+    def __repr__(self):
+        result = ''
+        for val in self.data:
+            if result != '':
+                result += ', '
+            try:
+                result += self.idmap[val]
+            except:
+                result += f"x:{val}"
+        return '[ ' + result + ' ]'
 
 class PromptChunk:
     """
@@ -15,15 +55,46 @@ class PromptChunk:
     so just 75 tokens from prompt.
     """
 
-    def __init__(self):
+    def __init__(self, embedder):
+        comma = embedder.wrapped.tokenizer(',', truncation=False, add_special_tokens=False)["input_ids"][0]
+
+        # idmap and props below to let us get better representations of tokenids
+        self.idmap = {
+            0: 'EMBED',
+            embedder.id_start: 'START',
+            embedder.id_pad: 'PAD',
+            comma: 'COMMA',
+            # there is also an id_end but it's hard coded to id_pad
+        }
         self.tokens = []
         self.multipliers = []
         self.fixes = []
 
+    #@property
+    #def tokens(self):
+    #    return self._tokens
+
+    #@tokens.setter
+    #def tokens(self, value):
+    #    self._tokens = PromptTokenList(value)
+    #    self._tokens.idmap = self.idmap
+
+    #@tokens.deleter
+    #def tokens(self):
+    #    del self._tokens
+
+    def __repr__(self):
+        def tokenstr(val):
+            return self.idmap[val] if val in self.idmap else val
+        out = []
+        for ii, token in enumerate(self.tokens):
+            out += [f'{tokenstr(token)}:{self.multipliers[ii]}' if self.multipliers[ii] != 1 else tokenstr(token)]
+
+        return f'PromptChunk(tokens={out}, fixes={self.fixes})'
 
 PromptChunkFix = namedtuple('PromptChunkFix', ['offset', 'embedding'])
 """An object of this type is a marker showing that textual inversion embedding's vectors have to placed at offset in the prompt
-chunk. Thos objects are found in PromptChunk.fixes and, are placed into FrozenCLIPEmbedderWithCustomWordsBase.hijack.fixes, and finally
+wchunk. Thos objects are found in PromptChunk.fixes and, are placed into FrozenCLIPEmbedderWithCustomWordsBase.hijack.fixes, and finally
 are applied by sd_hijack.EmbeddingsWithFixes's forward function."""
 
 
@@ -45,7 +116,7 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
     def empty_chunk(self):
         """creates an empty PromptChunk and returns it"""
 
-        chunk = PromptChunk()
+        chunk = PromptChunk(self)
         chunk.tokens = [self.id_start] + [self.id_end] * (self.chunk_length + 1)
         chunk.multipliers = [1.0] * (self.chunk_length + 2)
         return chunk
@@ -84,15 +155,25 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
         Returns the list and the total number of tokens in the prompt.
         """
 
+        #line = re.sub(r'\s+', ' ', line)
+        #line = re.sub(r', ', ',', line)
+        #line = re.sub(r',+', ',', line)
+        #line = re.sub(r'^[\s,]+|[\s,]$', '', line)
+        esc_line = re.sub(r'\n',r'\n',line)
+        print(f"tokenize_line({esc_line})")
+
         if opts.enable_emphasis:
             parsed = prompt_parser.parse_prompt_attention(line)
         else:
             parsed = [[line, 1.0]]
 
+        print(f"  with attention parsed: {parsed}")
         tokenized = self.tokenize([text for text, _ in parsed])
 
+        print(f"  tokenized: {tokenized}")
+
         chunks = []
-        chunk = PromptChunk()
+        chunk = PromptChunk(self)
         token_count = 0
         last_comma = -1
 
@@ -118,7 +199,7 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
 
             last_comma = -1
             chunks.append(chunk)
-            chunk = PromptChunk()
+            chunk = PromptChunk(self)
 
         for tokens, (text, weight) in zip(tokenized, parsed):
             if text == 'BREAK' and weight == -1:
@@ -193,6 +274,30 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
 
             batch_chunks.append(chunks)
 
+        def dump(obj):
+            if isinstance(obj, list):
+                return [dump(val) for val in obj]
+            if isinstance(obj, PromptChunk):
+                return {
+                  'tokens': getattr(obj, 'tokens'),
+                  'multipliers': getattr(obj, 'multipliers'),
+                  'fixes': getattr(obj, 'fixes')
+                }
+
+            try:
+                return vars(obj)
+            except:
+                pass
+
+            dmp = []
+            for attr in dir(obj):
+                if attr.starswith('_'):
+                    continue
+                val = getattr(obj, attr)
+                dmp.append([attr, val])
+            return dmp
+        if texts != '':
+            print(f"sd_hijack_clip.process_texts({texts}) = {token_count}, {batch_chunks}")
         return batch_chunks, token_count
 
     def forward(self, texts):
@@ -209,6 +314,7 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
             import modules.sd_hijack_clip_old
             return modules.sd_hijack_clip_old.forward_old(self, texts)
 
+        print(f"forward({texts})")
         batch_chunks, token_count = self.process_texts(texts)
 
         used_embeddings = {}
@@ -226,13 +332,14 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
                 for position, embedding in fixes:
                     used_embeddings[embedding.name] = embedding
 
+            # returns tensors
             z = self.process_tokens(tokens, multipliers)
             zs.append(z)
 
         if len(used_embeddings) > 0:
             embeddings_list = ", ".join([f'{name} [{embedding.checksum()}]' for name, embedding in used_embeddings.items()])
             self.hijack.comments.append(f"Used embeddings: {embeddings_list}")
-
+        print(f"forward -> torch.hstack({zs})")
         return torch.hstack(zs)
 
     def process_tokens(self, remade_batch_tokens, batch_multipliers):
@@ -254,11 +361,17 @@ class FrozenCLIPEmbedderWithCustomWordsBase(torch.nn.Module):
         z = self.encode_with_transformers(tokens)
 
         # restoring original mean is likely not correct, but it seems to work well to prevent artifacts that happen otherwise
+        print(f"Raw multipliers: {batch_multipliers}")
         batch_multipliers = torch.asarray(batch_multipliers).to(devices.device)
+        print(f"Torched multipliers: {batch_multipliers}")
         original_mean = z.mean()
+        print(f"Original mean: {original_mean} value: {z}")
         z = z * batch_multipliers.reshape(batch_multipliers.shape + (1,)).expand(z.shape)
         new_mean = z.mean()
+        print(f"After multpliers: mean {new_mean} value: {z}")
         z = z * (original_mean / new_mean)
+        print(f"computed: {original_mean / new_mean}")
+        print(f"After appolication of mean: {z.mean()} value: {z}")
 
         return z
 
@@ -274,6 +387,7 @@ class FrozenCLIPEmbedderWithCustomWords(FrozenCLIPEmbedderWithCustomWordsBase):
 
         self.token_mults = {}
         tokens_with_parens = [(k, v) for k, v in vocab.items() if '(' in k or ')' in k or '[' in k or ']' in k]
+        print(f"sd_hijack_clip.__init__({tokens_with_parens})")
         for text, ident in tokens_with_parens:
             mult = 1.0
             for c in text:
@@ -294,6 +408,7 @@ class FrozenCLIPEmbedderWithCustomWords(FrozenCLIPEmbedderWithCustomWordsBase):
         self.id_pad = self.id_end
 
     def tokenize(self, texts):
+        print(f"sd_hijack_clip.tokenize({texts})")
         tokenized = self.wrapped.tokenizer(texts, truncation=False, add_special_tokens=False)["input_ids"]
 
         return tokenized

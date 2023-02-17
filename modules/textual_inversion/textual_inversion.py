@@ -52,6 +52,9 @@ class Embedding:
         self.optimizer_state_dict = None
         self.filename = None
 
+    def __repr__(self):
+        return f"Embeddding(name={self.name}, step={self.step}, chkpt={self.sd_checkpoint_name}" + ")"
+
     def save(self, filename):
         embedding_data = {
             "string_to_token": {"*": 265},

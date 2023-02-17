@@ -19,6 +19,7 @@ class FrozenOpenCLIPEmbedderWithCustomWords(sd_hijack_clip.FrozenCLIPEmbedderWit
     def tokenize(self, texts):
         assert not opts.use_old_emphasis_implementation, 'Old emphasis implementation not supported for Open Clip'
 
+        print(f"sd_hijack_open_clip.tokenize({texts})")
         tokenized = [tokenizer.encode(text) for text in texts]
 
         return tokenized

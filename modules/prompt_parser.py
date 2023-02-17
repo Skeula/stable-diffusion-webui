@@ -201,8 +201,11 @@ def get_multicond_learned_conditioning(model, prompts, steps) -> MulticondLearne
     """
 
     res_indexes, prompt_flat_list, prompt_indexes = get_multicond_prompt_list(prompts)
+    print(f"get_multicond_prompt_list res_index={res_indexes} flat={prompt_flat_list} pr_index={prompt_indexes}")
 
     learned_conditioning = get_learned_conditioning(model, prompt_flat_list, steps)
+
+    print(f"get_learned_conditioning {learned_conditioning}")
 
     res = []
     for indexes in res_indexes:
