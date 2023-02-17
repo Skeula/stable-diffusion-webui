@@ -1039,7 +1039,7 @@ def create_ui():
                     else:
                         tab_subname = None
                     parameters_copypaste.register_paste_params_button(parameters_copypaste.ParamBinding(
-                        paste_button=button, tabname=tabname, tab_subname=tab_subname, source_text_component=generation_info, source_image_component=image, override_settings_component=override_settings_dict.get(tabname),
+                        paste_button=button, tabname=tabname, tab_subname=tab_subname, source_text_component=generation_info, source_image_component=image, source_tabname="pnginfo", override_settings_component=override_settings_dict.get(tabname),
                     ))
 
         image.change(
