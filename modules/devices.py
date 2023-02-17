@@ -93,12 +93,14 @@ def cond_cast_float(input):
 
 def randn(seed, shape):
     torch.manual_seed(seed)
+    return torch.randn(shape, device=cpu).to(device)
     if device.type == 'mps':
         return torch.randn(shape, device=cpu).to(device)
     return torch.randn(shape, device=device)
 
 
 def randn_without_seed(shape):
+    return torch.randn(shape, device=cpu).to(device)
     if device.type == 'mps':
         return torch.randn(shape, device=cpu).to(device)
     return torch.randn(shape, device=device)
