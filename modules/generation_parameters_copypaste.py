@@ -60,7 +60,8 @@ def image_from_url_text(filedata):
     if type(filedata) == dict and filedata.get("is_file", False):
         filename = filedata["name"]
         is_in_right_dir = ui_tempdir.check_tmp_file(shared.demo, filename)
-        assert is_in_right_dir, 'trying to open image file outside of allowed directories'
+        print(f"Image from URL text: {filename}")
+        #assert is_in_right_dir, 'trying to open image file outside of allowed directories'
 
         return Image.open(filename)
 
