@@ -74,12 +74,36 @@ function tryToRemoveExtraNetworkFromPrompt(textarea, text){
 
 function cardClicked(tabname, textToAdd, allowNegativePrompt){
     var textarea = allowNegativePrompt ? activePromptTextarea[tabname] : gradioApp().querySelector("#" + tabname + "_prompt > label > textarea")
+    const updates = []
+    if (Array.isArray(textToAdd)) {
+        const [addPrompt,addNegativePrompt] = textToAdd
+        if (addPrompt) {
+          updates.push({
+              textarea: gradioApp().querySelector(`#${tabname}_prompt > label > textarea`),
+              add: addPrompt
+          })
+        }
+        if (addNegativePrompt) {
+          updates.push({
+              textarea: gradioApp().querySelector(`#${tabname}_neg_prompt > label > textarea`),
+              add: addNegativePrompt
+          })
+        }
+    } else {
+        textarea = allowNegativePrompt
+                 ? activePromptTextarea[tabname]
+                 : gradioApp().querySelector(`#${tabname}_prompt > label > textarea`)
+        updates.push({ textarea, add: textToAdd })
+    }
+    for (const update of updates) {
+        if (!update.add) continue
 
-    if(! tryToRemoveExtraNetworkFromPrompt(textarea, textToAdd)){
-        textarea.value = textarea.value + opts.extra_networks_add_text_separator + textToAdd
+        if(! tryToRemoveExtraNetworkFromPrompt(textarea, textToAdd)){
+            textarea.value = textarea.value + opts.extra_networks_add_text_separator + textToAdd
+        }
+        updateInput(update.textarea)
     }
 
-    updateInput(textarea)
 }
 
 function saveCardPreview(event, tabname, filename){
