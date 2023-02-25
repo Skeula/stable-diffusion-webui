@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+import bs4
+from bs4 import BeautifulSoup
+from urllib.parse import  urljoin
+from contextlib import suppress
+import subprocess
+import json
+import re
+import sys
+import os
+
+
+# TODO: (also in upd)
+## Either rename link to url in the top level OR rename url to link in the files list
+##   other version specific things to version- or version.
+## Add support for more sites:
+##   Hugging face
+##     https://huggingface.co/runwayml/stable-diffusion-v1-5
+
+baseurl = sys.argv[1]
+search = sys.argv[2] if len(sys.argv) > 2 else None
+
+raw_cookies = [
+  '__Host-next-auth.csrf-token=7e955248cb8a36ec21e83aafe7c517f7bc2f002e189c6201f4c8e7d68345ac6d%7Cc3b5168cc94dbc2063b0fdca745206e2d14eeb43b160c4252c225ade711d5ced'
+  '__Secure-next-auth.session-token=eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..1P1A8MQB6o1KBQp0.2mg4UK0bVoXDDS6XZkMQ1Lv6y20hmVSMqwGJt4V8UaOVW46tc14ec-2iG71XHlkaZPOR-s6AaJX4eKiO2KpMY2rSgbojsU_KOgkUB02xlJdvuvad7GIqaeoTYiU_AQV3puiaRuN-qvOeaKg2Om2ez7RE5z4XhLEGYuGOZ0YTr_41G5X9v663Jj1PffM_3yYSkm6PoYg7fzsZGIJmuEbtFJO0nBA4XFZKPoTYw8KESWK6QcOOUbhkTNNdbfqMgUIvNRGsk2n_9DV1p99epod8GpumRXcx1CkD3UED8TKSa9Qp_l-wsaprEqX3uDXaL5vwS1p8n2dIaHxqwpRAfyLL1EiomjkiSQWfXCDs8FA5cIZxcnY8lWweuy_227l7BFxFcgRaZBZkKeZIhx-Q0IEvgKuBl2xRxYfk4Ll8_B5Au2LDgneFFdemDtQGjkA6Pm0CBxDIFmW7sSB5sBDJeivQP_FpAL5ViFQ5HK7RVb1QAm4H50NRINf3CX6we3xd0fdereU0x_sdQ5VUtxQpqD1fsXV7R362YGBBWz-0rXd8HuhxSfCIh5BueFlrU3LhT83kG6ZO_9fbFLFtEOzVfgTxH_JvpmwWjM47IR_7ZGrUBQt2DH4Bm6iBlc8Bk0mVh10VOtozQoCKcXE.P7dDAczfsqQt7uCmGgcLOA',
+  '__Secure-next-auth.session-token=eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..W1w7rrqBATT8Ee1n.J3r4CaG1DVc-O-qN7W68YVao3dMVqi2jIBt16qGlAopgPpF-QiK0PFBK2QdYjWVdCFObPCibRXWt-d_veR778OuvcIEzeHjuK6J7HnB32Y8gfL7g9i8X5yoR7ZRuwFWfUxuoK60q1AoOkJpuu7FlcnjAF-BhC4Km3KMCIoGRbrj6RkjLbGt6n0liNhtzWeAaByVZDqJ3pcYpJqCyQv2eZjH9ispnVtGJWTGZWPt17aqTykN14YRSbQQ-5UHgLv5ot4mJc1qfV3OTH5IAsbS7c3drr8EsmPnOtmoy3YsE7jWejO8hyga3XFL4I2m8BArJavmMNGr6_-oB_ip4TMw3_r53Q-Sygegm7tPPk2EHCvwxWso7cT7bx7nyFG0TMqskapxGeJ_gRjzVQfgWGIiMkJz9XipjA6KHCO1jFa-L43UNyhIZArErT4vdBgheoKBuQi0MiA2C_C10ETFEjEciuf7aKV6hEaWXmqx6I2tpAvUNUkaY0SAYcQrfS5XrwpiyMXdyZK0OTKtaCPzMVHlMJWxJMRirn3cCxEEbnK250DGuBx0t5M5tTntdGxIy6w3hE3d4ixjH6qEqICLptt5ZjQo5H3H1PUhdp_9GExvvrBH_KJrA1a49rahDT5Yzt0vZ_IbRjWVn--c.sxfB-fRwgoWfr8MINzG3mQ',
+  '__Secure-next-auth.callback-url=https%3A%2F%2Fcivitai.com%2Flogin%3FreturnUrl%3D%2F',
+  'f_sort=Newest',
+  '__Secure-civitai-token=eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..J1wNP8qFgA17FZbi.CnMrMrf9bPfpU-T9t7cxayvcift2X7YlzKHN52RBefyzP7Lvkl82wTM-4npZR-OI69e5fMOQyzgPm1KfcZN3zPto_M6YOa5j60DPfwjzrJs7eK5R_ikgiNz9Hu7aqwI3AjN05sz_NU598GWw0sRAIgbu-xEirGOV_MMOt76MpKO04pnqGyqio1xbFCEb3zZFDazvauo1XpSbc_XxaWAa4QO3cOkrm7kZlfEO-Sdo6xhHGwZ5R6VIpWr4mvouDJnumN4Gue9pJsptPM6rIAB-bx29z9SIuPXepp2hwoJthvZCRU_K5iPK2hyIyH1ECIDG52S7tzm87f2IXg9f0KXqPpWVN6_5gYWcugUE4GOFQ8RQNjs_4a1i4vzOCfIjn7nc0GeirCXo6bo-690bj83CZHTpywQiNfQcoaZWc9S44zbGasp_fNEIHwpz-F5ubkvEAuZXyqmMutaBSiEeqK5dWIXRqKCd9LzPUCAo1phAFntWJ4HteKsFQmuL-8XbDvwLfKD4u4SU_NLX2G1V-fmcidj9ky7Y6I-yv7v0yAA0tB2Q6wbbWDrT21RZIh9lJR4RIPqgMguGeqDnIAtDj5yuqLwBbMdHdoHSCn_NnlaTjg_DnvMaHHqQNc6N8HPnZ77OhzOkDR7HmBessJazZ8J73u2itovRJuUP1EvFk5ConGkcufpOU1pVbfuxjeCIKgmaWmg-th_Ao7eB1_wwGJ3OH6CJuyI0d8tBvGfClYRn89db7aFgFeM.uNsrLLyG5mQcXHZFLTFqtQ'
+]
+
+cookies = 'Cookie: ' + '; '.join(raw_cookies)
+
+if os.path.exists('temp.url'):
+  with open('temp.url', 'r') as fd:
+    fileurl = fd.read()
+  if fileurl != baseurl:
+    os.unlink('temp.url')
+    with suppress(FileNotFoundError):
+      os.unlink('temp.html')
+elif os.path.exists('temp.html'):
+  os.unlink('temp.html')
+
+if not os.path.exists('temp.html'):
+  print(' '.join(["curl", "-Z", "-C", "-", "-o", f"temp.html", baseurl]))  
+  subprocess.run(["curl", "-Z", '-H', cookies, "-C", "-", "-o", f"temp.html", baseurl])
+  with open(f"temp.url", 'w', encoding='utf-8') as f:
+    f.write(baseurl)
+
+
+soup = BeautifulSoup(open('temp.html') , 'html.parser')
+## civit stuffs a json blob for their spa in the output, so we  just use that mostly.
+data = json.loads(soup.find(id="__NEXT_DATA__").string)['props']['pageProps']['trpcState']['json']['queries'][0]['state']['data']
+
+def get_title():
+  titletags = soup.select('h1.mantine-Title-root')
+  return titletags[0].text if titletags else None
+
+def get_prop(prop):
+  label = soup.select(f"td:-soup-contains('{prop}')")
+  if len(label) == 0:
+    print(f"SKIPPING {prop}")
+    return ''
+
+  value = soup.select(f"td:-soup-contains('{prop}')")[0].next_sibling
+  #components = value.select('.mantine-Badge-root')
+  if prop == 'Tags' or prop == 'Trigger Words':
+    components = value.find_all(class_='mantine-Badge-root')
+    return [val.text.strip() for val in components]
+  elif prop == 'Uploaded By':
+    return value.find(class_='mantine-Anchor-root').text
+  elif prop == 'Type':
+    return value.select('.mantine-Badge-inner')[0].text.strip()
+  else:
+    return value.text.strip()
+
+def dbg(val):
+  try:
+    print(json.dumps(val, ensure_ascii=False, indent=4))
+  except:
+    print(val)
+
+info = {
+  'title': get_title(),
+  'tags': [val['tag']['name'] for val in data['tagsOnModels']],
+  'author': data['user']['username'],
+  'type': re.sub('\s+', ' ', get_prop('Type').lower()),
+  'description': BeautifulSoup(data['description'], 'html.parser').text if data['description'] else '',
+  'link': baseurl,
+}
+
+if info['type'] == 'lora':
+  if 'model was extracted' in info['description']:
+    info['model-dir'] = 'models/lora/xt'
+  else:
+    info['model-dir'] = 'models/lora/$🧪'
+elif info['type'] == 'checkpoint merge':
+  info['model-dir'] = 'models/Stable-diffusion/1️⃣/$🧪'
+elif info['type'] == 'checkpoint trained':
+  info['model-dir'] = 'models/Stable-diffusion/1️⃣/$🧪/✨'
+elif info['type'] == 'hypernetwork':
+  info['model-dir'] = 'models/hypernetworks/$🧪'
+elif info['type'] == 'textual inversion':
+  info['model-dir'] = 'embeddings/$🧪'
+elif info['type'] == 'aesthetic gradient':
+  info['model-dir'] = 'extensions/stable-diffusion-webui-aesthetic-gradients/aesthetic_embeddings/'
+else:
+  dbg(info)
+  print("!!!!!!!!!!!!!! Unknown type")
+
+match = []
+
+versions = []
+
+# first download link is the PAGE download link, not a version one, so we skip it
+downloads = [urljoin(baseurl, dl.parent.parent['href']) for dl in soup.select("span:-soup-contains('Download')")[1:]]
+
+def splitmodel(filename):
+    name, ext = os.path.splitext(filename)
+    if name.endswith('.vae'):
+        name = name[:-4]
+        ext = '.vae' + ext
+    return name, ext
+
+for ii, ver in enumerate(data['modelVersions']):
+    if not ver['canDownload']:
+        continue
+
+    verInfo = info.copy()
+    verInfo['version'] = ver['name']
+    verInfo['updated'] = ver['updatedAt']
+    verInfo['trigger'] = ver['trainedWords']
+    verInfo['base'] = ver['baseModel']
+
+    # an array of every type of hash for every type of file available for this version
+    ver_hashes = [hash['hash'].lower() for file in ver['files'] for hash in file['hashes']]
+
+    images = {
+      "match": {"sfw": [], "all": []},
+      "rough_match": {"sfw": [], "all": []},
+      "any": {"sfw": [], "all": ver['images']}
+    }
+
+    ver_match = []
+    rough_match = []
+    
+    ver_match_sfw = []
+
+    names = []
+    if len(ver['trainedWords']) == 1:
+        names.append(*ver['trainedWords'])
+    for file in ver['files']:
+        if file['type'] != 'Model':
+            continue
+        name, ext = splitmodel(file['name'])
+        if name in names:
+            continue
+        names.append(name)
+
+    trigger = None
+    if info['type'] == 'textual inversion':
+        trigger = f'\\b({"|".join(names)})\\b'
+    elif info['type'] == 'hypernetwork':
+        trigger = f'<hypernet:(?:{"|".join(names)})[^:>]*(?::[\\d.]+)?>'
+    elif info['type'] == 'lora':
+        trigger = f'<lora:(?:{"|".join(names)})[^:>]*(?::[\\d.]+)?>'
+
+    for img in ver['images']:
+        if not img['meta']:
+            continue
+        if info['type'].startswith('checkpoint'):
+            if not 'Model hash' in img['meta']:
+                continue
+            if img['meta']['Model hash'].lower() in ver_hashes:
+                images['match']['all'].append(img)
+                continue
+        elif info['type'] == 'aesthetic gradient':
+            if 'Aesthetic embedding' in img['meta']:
+                if img['meta']['Aesthetic embedding'] in names:
+                    images['match']['all'].append(img)
+                    continue
+                else:
+                    images['rough_match']['all'].append(img)
+                    continue
+        elif 'resources' in img['meta'] and img['meta']['resources'] and any(x['type'] == 'lora' and name in names for x in img['meta']['resources']):
+            images['match']['all'].append(img)
+            continue
+        elif 'prompt' in img['meta'] and re.search(trigger, img['meta']['prompt']):
+            images['match']['all'].append(img)
+            continue
+        elif 'negative_prompt' in img['meta'] and re.search(trigger, img['meta']['negative_prompt']):
+            images['match']['all'].append(img)
+            continue
+
+    for filt in images:
+      images[filt]['sfw'] = list(filter(lambda img: not img['nsfw'], images[filt]['all']))
+
+    # ideally we only want images actually created with this version, secondly
+    # we'd prefer an SFW image if one is available
+    # But failing either of those we'll take what we can get
+    first_image = None
+
+    all_images = []
+    for imglist in [images[kind][safety] for kind in images for safety in images[kind]]:
+        if not imglist:
+            continue
+        for img in imglist:
+            all_images.append(img)
+
+
+    for fallback in ['exact', 'fuzzy', 'skip']:
+      for img in all_images:
+        first_image = img
+        if fallback == 'skip':
+            break
+
+        if first_image['name']:
+            images = soup.find(alt=first_image['name'])
+            if images and len(images):
+                preview = images[0]
+                break
+
+        if fallback == 'exact':
+            continue
+
+
+        # hopefully this is the same image as in the metadata, less sure, but
+        # some images don't record the filename in the json clob
+        images = soup.select("div.mantine-AspectRatio-root img")
+        if images:
+            preview = images[0]
+            break
+
+    verInfo['preview'] = {}
+
+    for key in ['name','width','height','generationProcess']:
+        verInfo['preview'][key] = first_image[key] 
+
+    
+    verInfo['preview']['link'] = urljoin(baseurl, preview['src'])
+    if ('meta' in first_image and first_image['meta']):
+      for key in first_image['meta']:
+          verInfo['preview'][key] = first_image['meta'][key] 
+    
+    verInfo['files'] = []
+    link = downloads[ii]
+    for file in ver['files']:
+      name, ext = splitmodel(file['name'])
+      fileLink = link + f"?type={file['type']}&format={file['format']}"
+      verInfo['files'] += [{
+        "id": file['id'],
+        "_name": name,
+        "_ext": ext,
+        "filename": file['name'],
+        "link": fileLink,
+        "type": file['type'],
+        "format": file['format'],
+        "hashes": file['hashes']
+      }]
+    versions += [verInfo]
+
+match = []
+if len(versions) == 1:
+  match = versions
+else:
+  for ver in versions:
+    if not search or search in ver['version'] or any(search in file['filename'] for file in ver['files']):
+      match += [ver]
+
+def norm (title):
+  return re.sub(r'_', ' ', title.lower())
+
+if len(match)>1:
+  print("Multiple matches, please select one:")
+  if search:
+    print(f"    You searched for: {search}")
+  for info in match:
+    #dbg(info)
+    print(f"  {info['version']} - {', '.join(file['filename'] for file in info['files'])}")
+  exit(len(match))
+elif not match:
+  print(f"No version matched:")
+  if search:
+    print(f"    You searched for: {search}")
+  for info in versions:
+    print(f"  {info['version']} - {', '.join(file['filename'] for file in info['files'])}")
+  exit(1)
+
+info = match[0]
+if norm(info['version']) in norm(info['title']):
+  out = info['title']
+elif norm(info['title']) in norm(info['version']):
+  out = info['version']
+else:
+  out = f"{info['title']} - {info['version']}"
+
+out = re.sub(r'[:/]', '-', out)
+
+if info['type'] == 'textual inversion':
+  out = re.sub(r'-+', '-', re.sub(r'[^-A-Za-z0-9_]','-',out))
+
+def ftype (file):
+  return file['_ext'] if file['type'] == 'Other' else file['type']
+
+grouped = {}
+for file in info['files']:
+  if not ftype(file) in grouped:
+    grouped[ftype(file)] = [] 
+  grouped[ftype(file)] += [file]
+
+# prefer pruned:
+for name in [*grouped]:
+  for grname in [*grouped]:
+    if grname != name and re.sub(r'[-_]pruned', '',grname) == name:
+      print(f"deleting {name} cause {grname} ({grname.replace('-pruned','')})")
+      del grouped[name]
+
+deduped = []
+for files in grouped.values():
+  if (len(files) == 1):
+    deduped += files
+    continue
+  picked = None
+  for file in files:
+    if not picked:
+      picked = file
+      continue
+    if file['format'] == 'SafeTensor' and picked['format'] != 'SafeTensor':
+      picked = file
+    elif file['type'] == 'Pruned Model' and picked['type'] == 'Model':
+      picked = file
+    else:
+       print(f"Leaving existing alone {file}")
+  deduped += [file]
+
+seen = {}
+for file in deduped:
+  suffix = ''
+
+  if out+file['_ext'] in seen:
+    orig = seen[out+file['_ext']]
+    ourBase = file['_name']
+    origBase = orig['_name']
+    for char in range(min(len(ourBase),len(origBase)), 1, -1):
+      if ourBase.startswith(origBase[0:char]):
+        suffix = ourBase[char:]
+        break
+      if origBase.startswith(ourBase[0:char]):
+        suffix = origBase[char:]
+        break
+
+  fileout = out + suffix + file['_ext']
+
+  if fileout in seen:
+    print(f'Refusing to overwrite our own output: {fileout}')
+    print(f'name inferred from:')
+    dbg(file)
+    print(f'seen={seen}')
+    dbg(info['files'])
+    exit(1)
+  seen[fileout] = file
+  file['_ourname'] = fileout
+
+if not deduped:
+  print(f"No files selected at all")
+  exit(1)
+
+modeldir = info['model-dir']
+del info['model-dir']
+for file in info['files']:
+  if 'name' in file:
+      del file['name']
+  if 'ext' in file:
+      del file['ext']
+
+with open(f"{modeldir}/{out}.meta.json", 'w', encoding='utf-8') as f:
+  json.dump(info, f, ensure_ascii=False, indent=4)
+print(' '.join(["curl", "-L", "-Z", "-C", "-", "-o", f"{modeldir}/{out}.preview.png",f"{info['preview']['link']}"]))
+subprocess.run(["curl", "-L", "-Z", "-C", "-", "-o", f"{modeldir}/{out}.preview.png",f"{info['preview']['link']}"])
+for file in deduped:
+  print(' '.join(["curl", "-L", "-Z", "-C", "-", "-o", f"{modeldir}/{file['_ourname']}",f"{file['link']}"]))
+  subprocess.run(["curl", "-L", "-Z", "-H", cookies, "-C", "-", "-o", f"{modeldir}/{file['_ourname']}",f"{file['link']}"])
+#os.unlink('temp.html')
+#os.unlink('temp.url')
