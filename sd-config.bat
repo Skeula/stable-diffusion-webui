@@ -17,7 +17,7 @@ set ALLOW_CODE=1
 set LOCAL_NET_ACCESS=1
 
 rem If you can install it, it makes things faster
-set XFORMERS=1
+set XFORMERS=0
 
 rem This is (according to the huggingface docs) a substantial perf improvement (2.88x)
 set CHANNELS_LAST=1
